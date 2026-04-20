@@ -101,17 +101,22 @@ button:hover {
 }
 
 .preview-canvas {
-  display: grid;
   min-height: 0;
-  place-items: center;
   padding: 18px;
   overflow: auto;
   background: #f8fafc;
   cursor: zoom-out;
 }
 
+.preview-stage {
+  display: grid;
+  min-width: 100%;
+  min-height: 100%;
+  place-items: center;
+  cursor: default;
+}
+
 .preview-canvas img {
-  max-width: 100%;
   height: auto;
   background: #ffffff;
   border: 1px solid #d1d5db;

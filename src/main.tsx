@@ -149,7 +149,9 @@ async function renderBlock(blockUuid: string, event: RendererBlock) {
           <button data-on-click="editExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}">Edit</button>
           <button data-on-click="deleteExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}">Delete</button>
         </div>
-        <img src="${safeImageUrl}" alt="Excalidraw drawing" />
+        <button class="logseq-excalidraw-preview-button" data-on-click="previewExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}" title="Preview">
+          <img src="${safeImageUrl}" alt="Excalidraw drawing" />
+        </button>
       </div>
     `,
   });
@@ -303,7 +305,19 @@ function installStyles() {
     }
 
     .logseq-excalidraw-preview-button {
+      display: block;
+      width: 100%;
+      min-height: 0;
+      padding: 0;
+      border: 0;
+      border-radius: 0;
+      color: inherit;
+      background: transparent;
       cursor: zoom-in;
+    }
+
+    .logseq-excalidraw-preview-button:hover {
+      background: transparent;
     }
 
     .logseq-excalidraw-renderer img {

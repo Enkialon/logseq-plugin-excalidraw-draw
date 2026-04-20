@@ -25,6 +25,7 @@ declare global {
 
 export function App() {
   const [state, setState] = useState<EditorState>({ status: "idle" });
+  const [previewScale, setPreviewScale] = useState(1);
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const assetsStorage = useMemo(() => logseq.Assets.makeSandboxStorage(), []);
 
@@ -71,6 +72,7 @@ export function App() {
     };
 
     window.openExcalidrawPreview = async (imageUrl: string) => {
+      setPreviewScale(1);
       setState({ status: "preview", imageUrl });
       await openMainUI("查看 Excalidraw");
     };
@@ -122,6 +124,13 @@ export function App() {
   const close = useCallback(() => {
     logseq.hideMainUI();
     setState({ status: "idle" });
+    setPreviewScale(1);
+  }, []);
+
+  const zoomPreview = useCallback((event: React.WheelEvent<HTMLElement>) => {
+    event.preventDefault();
+    const direction = event.deltaY > 0 ? -1 : 1;
+    setPreviewScale((scale) => Math.min(4, Math.max(0.5, scale + direction * 0.15)));
   }, []);
 
   const save = useCallback(async () => {
@@ -163,11 +172,16 @@ export function App() {
   }, []);
 
   useEffect(() => {
-    window.addEventListener("keydown", (event) => {
+    const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         close();
       }
-    });
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+    };
   }, [close]);
 
   if (state.status === "idle") {
@@ -200,13 +214,22 @@ export function App() {
       <main className="preview-window">
         <header className="editor-toolbar">
           <strong>Excalidraw</strong>
-          <span>Preview</span>
+          <span>Preview: scroll to zoom</span>
           <button type="button" onClick={close}>
             Close
           </button>
         </header>
-        <section className="preview-canvas" onClick={close}>
-          <img src={state.imageUrl} alt="Excalidraw preview" />
+        <section className="preview-canvas" onWheel={zoomPreview}>
+          <div className="preview-stage" onClick={(event) => event.stopPropagation()}>
+            <img
+              src={state.imageUrl}
+              alt="Excalidraw preview"
+              style={{
+                maxWidth: previewScale === 1 ? "100%" : "none",
+                width: `${previewScale * 100}%`,
+              }}
+            />
+          </div>
         </section>
       </main>
     );
