@@ -24,6 +24,12 @@ export function createSourceBlock(source: ExcalidrawSource = EMPTY_EXCALIDRAW_SO
   return `\`\`\`${FENCE_LANGUAGE}\n${JSON.stringify(source, null, 2)}\n\`\`\``;
 }
 
+export function createAssetLinkBlock(assetPath: string) {
+  const pathParts = assetPath.split("/");
+  const fileName = pathParts[pathParts.length - 1] || "draw.excalidraw";
+  return `[${fileName}](../assets/${assetPath})`;
+}
+
 export function parseSourceBlock(content: string): ExcalidrawSource | null {
   const trimmed = content.trim();
   const fenced = trimmed.match(/^```(?:excalidraw|excalidraw-json)\s*\n([\s\S]*?)\n```$/);
@@ -46,4 +52,42 @@ export function parseSourceBlock(content: string): ExcalidrawSource | null {
   } catch {
     return null;
   }
+}
+
+export type ExcalidrawAssetLink = {
+  label: string;
+  href: string;
+  assetPath: string;
+};
+
+export function parseExcalidrawAssetLink(content: string): ExcalidrawAssetLink | null {
+  const match = content.trim().match(/^\[([^\]]+\.excalidraw)\]\(([^)]+\.excalidraw)\)$/i);
+  if (!match) {
+    return null;
+  }
+
+  const [, label, href] = match;
+  const assetPath = normalizeAssetPath(href);
+  if (!assetPath) {
+    return null;
+  }
+
+  return { label, href, assetPath };
+}
+
+export function normalizeAssetPath(href: string) {
+  const decoded = decodeURIComponent(href.trim());
+  const normalized = decoded.replace(/\\/g, "/").replace(/^file:\/\//, "");
+  const assetsIndex = normalized.lastIndexOf("/assets/");
+
+  if (assetsIndex >= 0) {
+    return normalized.slice(assetsIndex + "/assets/".length);
+  }
+
+  const relativeAssetPath = normalized
+    .replace(/^\.?\/*assets\//, "")
+    .replace(/^(\.\.\/)+assets\//, "")
+    .replace(/^\/+/, "");
+
+  return relativeAssetPath;
 }

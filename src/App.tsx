@@ -5,37 +5,48 @@ import { createSourceBlock, EMPTY_EXCALIDRAW_SOURCE, parseSourceBlock, type Exca
 
 type EditorState =
   | { status: "idle" }
-  | { status: "loading"; blockUuid: string }
-  | { status: "ready"; blockUuid: string; source: ExcalidrawSource }
+  | { status: "loading"; title: string }
+  | { status: "preview"; imageUrl: string }
+  | { status: "ready"; target: EditorTarget; source: ExcalidrawSource }
   | { status: "error"; message: string };
+
+type EditorTarget =
+  | { kind: "block"; blockUuid: string }
+  | { kind: "asset"; assetPath: string; blockUuid?: string };
 
 declare global {
   interface Window {
     openExcalidrawEditor?: (blockUuid: string) => void;
+    openExcalidrawAssetEditor?: (assetPath: string, blockUuid?: string) => void;
+    openExcalidrawPreview?: (imageUrl: string) => void;
+    refreshExcalidrawRenderer?: (blockUuid: string) => void;
   }
 }
 
 export function App() {
   const [state, setState] = useState<EditorState>({ status: "idle" });
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
+  const assetsStorage = useMemo(() => logseq.Assets.makeSandboxStorage(), []);
+
+  const openMainUI = useCallback(async (title: string) => {
+    await logseq.setMainUIAttrs({ title });
+    logseq.setMainUIInlineStyle({
+      zIndex: 11,
+      position: "fixed",
+      inset: "24px",
+      width: "calc(100vw - 48px)",
+      height: "calc(100vh - 48px)",
+      borderRadius: "8px",
+      boxShadow: "0 20px 55px rgba(15, 23, 42, 0.35)",
+      background: "var(--ls-primary-background-color)",
+    });
+    logseq.showMainUI();
+  }, []);
 
   useEffect(() => {
     window.openExcalidrawEditor = async (blockUuid: string) => {
-      setState({ status: "loading", blockUuid });
-      await logseq.setMainUIAttrs({
-        title: "编辑 Excalidraw",
-      });
-      logseq.setMainUIInlineStyle({
-        zIndex: 11,
-        position: "fixed",
-        inset: "24px",
-        width: "calc(100vw - 48px)",
-        height: "calc(100vh - 48px)",
-        borderRadius: "8px",
-        boxShadow: "0 20px 55px rgba(15, 23, 42, 0.35)",
-        background: "var(--ls-primary-background-color)",
-      });
-      logseq.showMainUI();
+      setState({ status: "loading", title: "正在打开块内绘图..." });
+      await openMainUI("编辑 Excalidraw");
 
       const block = await logseq.Editor.getBlock(blockUuid);
       const source = block?.content ? parseSourceBlock(block.content) : null;
@@ -43,13 +54,33 @@ export function App() {
         setState({ status: "error", message: "这个块不是有效的 Excalidraw 源格式。" });
         return;
       }
-      setState({ status: "ready", blockUuid, source });
+      setState({ status: "ready", target: { kind: "block", blockUuid }, source });
+    };
+
+    window.openExcalidrawAssetEditor = async (assetPath: string, blockUuid?: string) => {
+      setState({ status: "loading", title: "正在打开文件绘图..." });
+      await openMainUI("编辑 Excalidraw");
+
+      const content = await assetsStorage.getItem(assetPath);
+      const source = typeof content === "string" ? parseSourceBlock(content) : null;
+      if (!source) {
+        setState({ status: "error", message: "这个文件不是有效的 Excalidraw 源格式。" });
+        return;
+      }
+      setState({ status: "ready", target: { kind: "asset", assetPath, blockUuid }, source });
+    };
+
+    window.openExcalidrawPreview = async (imageUrl: string) => {
+      setState({ status: "preview", imageUrl });
+      await openMainUI("查看 Excalidraw");
     };
 
     return () => {
       delete window.openExcalidrawEditor;
+      delete window.openExcalidrawAssetEditor;
+      delete window.openExcalidrawPreview;
     };
-  }, []);
+  }, [assetsStorage, openMainUI]);
 
   const initialData = useMemo(() => {
     if (state.status !== "ready") {
@@ -85,10 +116,18 @@ export function App() {
     const serialized = serializeAsJSON(api.getSceneElements(), api.getAppState(), api.getFiles(), "local");
     const source = JSON.parse(serialized) as ExcalidrawSource;
 
-    await logseq.Editor.updateBlock(state.blockUuid, createSourceBlock(source));
+    if (state.target.kind === "block") {
+      await logseq.Editor.updateBlock(state.target.blockUuid, createSourceBlock(source));
+    } else {
+      await assetsStorage.setItem(state.target.assetPath, JSON.stringify(source, null, 2));
+      if (state.target.blockUuid) {
+        window.refreshExcalidrawRenderer?.(state.target.blockUuid);
+      }
+    }
+
     await logseq.UI.showMsg("Excalidraw 已保存。", "success");
     close();
-  }, [close, state]);
+  }, [assetsStorage, close, state]);
 
   const createEmptyDrawing = useCallback(async () => {
     const currentBlock = await logseq.Editor.getCurrentBlock();
@@ -120,7 +159,7 @@ export function App() {
   }
 
   if (state.status === "loading") {
-    return <div className="status-panel">正在打开绘图...</div>;
+    return <div className="status-panel">{state.title}</div>;
   }
 
   if (state.status === "error") {
@@ -134,11 +173,28 @@ export function App() {
     );
   }
 
+  if (state.status === "preview") {
+    return (
+      <main className="preview-window">
+        <header className="editor-toolbar">
+          <strong>Excalidraw</strong>
+          <span>预览</span>
+          <button type="button" onClick={close}>
+            关闭
+          </button>
+        </header>
+        <section className="preview-canvas" onClick={close}>
+          <img src={state.imageUrl} alt="Excalidraw preview" />
+        </section>
+      </main>
+    );
+  }
+
   return (
     <main className="editor-window">
       <header className="editor-toolbar">
         <strong>Excalidraw</strong>
-        <span>源内容仍保存在当前 Logseq 块中。</span>
+        <span>{state.target.kind === "asset" ? `源文件：${state.target.assetPath}` : "源内容仍保存在当前 Logseq 块中。"}</span>
         <button type="button" onClick={close}>
           取消
         </button>
