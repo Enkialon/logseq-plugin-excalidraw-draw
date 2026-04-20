@@ -3,7 +3,13 @@ name: Publish
 on:
   release:
     types:
-      - created
+      - published
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to package, for example v0.1.0"
+        required: true
+        type: string
 
 permissions:
   contents: write
@@ -11,10 +17,14 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.RELEASE_TAG }}
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -42,9 +52,10 @@ jobs:
           cp icon.svg package/
           cp -r dist package/
           cd package
-          zip -r ../logseq-plugin-excalidraw-${{ github.ref_name }}.zip .
+          zip -r ../logseq-plugin-excalidraw-${RELEASE_TAG}.zip .
 
       - name: Upload release asset
         uses: softprops/action-gh-release@v2
         with:
-          files: logseq-plugin-excalidraw-${{ github.ref_name }}.zip
+          tag_name: ${{ env.RELEASE_TAG }}
+          files: logseq-plugin-excalidraw-${{ env.RELEASE_TAG }}.zip
