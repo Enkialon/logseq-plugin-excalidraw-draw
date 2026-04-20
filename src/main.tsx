@@ -246,7 +246,7 @@ function installCommands() {
 
     await logseq.Editor.updateBlock(currentBlock.uuid, createSourceBlock(EMPTY_EXCALIDRAW_SOURCE));
     registerRenderer(currentBlock.uuid);
-    window.openExcalidrawEditor?.(currentBlock.uuid);
+    window.openExcalidrawEditor?.(currentBlock.uuid, EMPTY_EXCALIDRAW_SOURCE);
   });
 
   logseq.Editor.registerSlashCommand("Excalidraw 文件绘图", async () => {

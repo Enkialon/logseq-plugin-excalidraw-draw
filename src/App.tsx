@@ -16,11 +16,15 @@ type EditorTarget =
 
 declare global {
   interface Window {
-    openExcalidrawEditor?: (blockUuid: string) => void;
+    openExcalidrawEditor?: (blockUuid: string, fallbackSource?: ExcalidrawSource) => void;
     openExcalidrawAssetEditor?: (assetPath: string, blockUuid?: string) => void;
     openExcalidrawPreview?: (imageUrl: string) => void;
     refreshExcalidrawRenderer?: (blockUuid: string) => void;
   }
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
 }
 
 export function App() {
@@ -44,13 +48,26 @@ export function App() {
     logseq.showMainUI();
   }, []);
 
+  const readBlockSource = useCallback(async (blockUuid: string, fallbackSource?: ExcalidrawSource) => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const block = await logseq.Editor.getBlock(blockUuid);
+      const source = block?.content ? parseSourceBlock(block.content) : null;
+      if (source) {
+        return source;
+      }
+
+      await delay(80);
+    }
+
+    return fallbackSource ?? null;
+  }, []);
+
   useEffect(() => {
-    window.openExcalidrawEditor = async (blockUuid: string) => {
+    window.openExcalidrawEditor = async (blockUuid: string, fallbackSource?: ExcalidrawSource) => {
       setState({ status: "loading", title: "正在打开块内绘图..." });
       await openMainUI("编辑 Excalidraw");
 
-      const block = await logseq.Editor.getBlock(blockUuid);
-      const source = block?.content ? parseSourceBlock(block.content) : null;
+      const source = await readBlockSource(blockUuid, fallbackSource);
       if (!source) {
         setState({ status: "error", message: "这个块不是有效的 Excalidraw 源格式。" });
         return;
@@ -82,7 +99,7 @@ export function App() {
       delete window.openExcalidrawAssetEditor;
       delete window.openExcalidrawPreview;
     };
-  }, [assetsStorage, openMainUI]);
+  }, [assetsStorage, openMainUI, readBlockSource]);
 
   const readAssetFile = useCallback(
     async (assetPath: string) => {
@@ -168,7 +185,7 @@ export function App() {
     }
 
     await logseq.Editor.updateBlock(currentBlock.uuid, createSourceBlock(EMPTY_EXCALIDRAW_SOURCE));
-    window.openExcalidrawEditor?.(currentBlock.uuid);
+    window.openExcalidrawEditor?.(currentBlock.uuid, EMPTY_EXCALIDRAW_SOURCE);
   }, []);
 
   useEffect(() => {
