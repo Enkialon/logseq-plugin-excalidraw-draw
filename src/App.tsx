@@ -61,7 +61,7 @@ export function App() {
       setState({ status: "loading", title: "正在打开文件绘图..." });
       await openMainUI("编辑 Excalidraw");
 
-      const content = await assetsStorage.getItem(assetPath);
+      const content = await readAssetFile(assetPath);
       const source = typeof content === "string" ? parseSourceBlock(content) : null;
       if (!source) {
         setState({ status: "error", message: "这个文件不是有效的 Excalidraw 源格式。" });
@@ -81,6 +81,28 @@ export function App() {
       delete window.openExcalidrawPreview;
     };
   }, [assetsStorage, openMainUI]);
+
+  const readAssetFile = useCallback(
+    async (assetPath: string) => {
+      try {
+        const assetUrl = await logseq.Assets.makeUrl(assetPath);
+        const response = await fetch(assetUrl);
+        if (response.ok) {
+          return await response.text();
+        }
+      } catch {
+        // Fall through to sandbox storage for files created by older plugin builds.
+      }
+
+      try {
+        const sandboxContent = await assetsStorage.getItem(assetPath);
+        return typeof sandboxContent === "string" ? sandboxContent : null;
+      } catch {
+        return null;
+      }
+    },
+    [assetsStorage],
+  );
 
   const initialData = useMemo(() => {
     if (state.status !== "ready") {
@@ -152,7 +174,7 @@ export function App() {
     return (
       <div className="empty-panel">
         <button type="button" className="primary-button" onClick={createEmptyDrawing}>
-          新建 Excalidraw
+          New Excalidraw
         </button>
       </div>
     );
@@ -167,7 +189,7 @@ export function App() {
       <div className="status-panel">
         <p>{state.message}</p>
         <button type="button" onClick={close}>
-          关闭
+          Close
         </button>
       </div>
     );
@@ -178,9 +200,9 @@ export function App() {
       <main className="preview-window">
         <header className="editor-toolbar">
           <strong>Excalidraw</strong>
-          <span>预览</span>
+          <span>Preview</span>
           <button type="button" onClick={close}>
-            关闭
+            Close
           </button>
         </header>
         <section className="preview-canvas" onClick={close}>
@@ -196,10 +218,10 @@ export function App() {
         <strong>Excalidraw</strong>
         <span>{state.target.kind === "asset" ? `源文件：${state.target.assetPath}` : "源内容仍保存在当前 Logseq 块中。"}</span>
         <button type="button" onClick={close}>
-          取消
+          Cancel
         </button>
         <button type="button" className="primary-button" onClick={save}>
-          保存
+          Save
         </button>
       </header>
       <section className="editor-canvas">

@@ -146,12 +146,10 @@ async function renderBlock(blockUuid: string, event: RendererBlock) {
     template: `
       <div class="logseq-excalidraw-renderer" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}">
         <div class="logseq-excalidraw-actions">
-          <button data-on-click="editExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}">编辑</button>
-          <button data-on-click="deleteExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}">删除</button>
+          <button data-on-click="editExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}">Edit</button>
+          <button data-on-click="deleteExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}">Delete</button>
         </div>
-        <button class="logseq-excalidraw-preview-button" data-on-click="previewExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}" title="点击放大">
         <img src="${safeImageUrl}" alt="Excalidraw drawing" />
-        </button>
       </div>
     `,
   });
@@ -216,9 +214,9 @@ function installCommands() {
         await assetsStorage.removeItem(assetPath);
       }
       if (blockUuid) {
-        await logseq.Editor.updateBlock(blockUuid, "");
+        await logseq.Editor.removeBlock(blockUuid);
       }
-      await logseq.UI.showMsg("Excalidraw 已删除。", "success");
+      await logseq.UI.showMsg("Excalidraw deleted.", "success");
     },
     async previewExcalidrawDrawing(event: { dataset?: { blockUuid?: string; assetPath?: string } }) {
       const blockUuid = event.dataset?.blockUuid;
@@ -229,7 +227,7 @@ function installCommands() {
       const block = await logseq.Editor.getBlock(blockUuid);
       const resolved = block?.content ? await resolveBlockSource(block.content) : null;
       if (!resolved) {
-        await logseq.UI.showMsg("无法读取 Excalidraw 预览。", "warning");
+        await logseq.UI.showMsg("Cannot read Excalidraw preview.", "warning");
         return;
       }
       const imageUrl = await renderSourceToDataUrl(resolved.source);
@@ -305,12 +303,6 @@ function installStyles() {
     }
 
     .logseq-excalidraw-preview-button {
-      display: block;
-      width: 100%;
-      padding: 0;
-      border: 0;
-      border-radius: 0;
-      background: transparent;
       cursor: zoom-in;
     }
 
