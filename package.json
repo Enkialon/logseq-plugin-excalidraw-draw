@@ -1,0 +1,38 @@
+{
+  "name": "logseq-plugin-excalidraw",
+  "version": "0.1.0",
+  "description": "Render and edit Excalidraw source blocks in Logseq.",
+  "type": "module",
+  "main": "dist/index.html",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview --host 127.0.0.1"
+  },
+  "keywords": [
+    "logseq",
+    "plugin",
+    "excalidraw"
+  ],
+  "license": "MIT",
+  "logseq": {
+    "id": "logseq-plugin-excalidraw",
+    "title": "Excalidraw Draw",
+    "icon": "icon.svg",
+    "main": "dist/index.html",
+    "mode": "iframe"
+  },
+  "dependencies": {
+    "@excalidraw/excalidraw": "^0.18.0",
+    "@logseq/libs": "^0.0.17",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {
+    "@types/react": "^18.2.79",
+    "@types/react-dom": "^18.2.25",
+    "@vitejs/plugin-react": "^4.2.1",
+    "typescript": "^5.4.5",
+    "vite": "^5.2.10"
+  }
+}

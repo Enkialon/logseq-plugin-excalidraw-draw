@@ -1,0 +1,159 @@
+import { Excalidraw, serializeAsJSON } from "@excalidraw/excalidraw";
+import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createSourceBlock, EMPTY_EXCALIDRAW_SOURCE, parseSourceBlock, type ExcalidrawSource } from "./excalidraw-source";
+
+type EditorState =
+  | { status: "idle" }
+  | { status: "loading"; blockUuid: string }
+  | { status: "ready"; blockUuid: string; source: ExcalidrawSource }
+  | { status: "error"; message: string };
+
+declare global {
+  interface Window {
+    openExcalidrawEditor?: (blockUuid: string) => void;
+  }
+}
+
+export function App() {
+  const [state, setState] = useState<EditorState>({ status: "idle" });
+  const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
+
+  useEffect(() => {
+    window.openExcalidrawEditor = async (blockUuid: string) => {
+      setState({ status: "loading", blockUuid });
+      await logseq.setMainUIAttrs({
+        title: "编辑 Excalidraw",
+      });
+      logseq.setMainUIInlineStyle({
+        zIndex: 11,
+        position: "fixed",
+        inset: "24px",
+        width: "calc(100vw - 48px)",
+        height: "calc(100vh - 48px)",
+        borderRadius: "8px",
+        boxShadow: "0 20px 55px rgba(15, 23, 42, 0.35)",
+        background: "var(--ls-primary-background-color)",
+      });
+      logseq.showMainUI();
+
+      const block = await logseq.Editor.getBlock(blockUuid);
+      const source = block?.content ? parseSourceBlock(block.content) : null;
+      if (!source) {
+        setState({ status: "error", message: "这个块不是有效的 Excalidraw 源格式。" });
+        return;
+      }
+      setState({ status: "ready", blockUuid, source });
+    };
+
+    return () => {
+      delete window.openExcalidrawEditor;
+    };
+  }, []);
+
+  const initialData = useMemo(() => {
+    if (state.status !== "ready") {
+      return undefined;
+    }
+
+    return {
+      elements: state.source.elements,
+      appState: {
+        viewBackgroundColor: "#ffffff",
+        ...(state.source.appState ?? {}),
+      },
+      files: state.source.files ?? {},
+    };
+  }, [state]);
+
+  const close = useCallback(() => {
+    logseq.hideMainUI();
+    setState({ status: "idle" });
+  }, []);
+
+  const save = useCallback(async () => {
+    if (state.status !== "ready") {
+      return;
+    }
+
+    const api = excalidrawApiRef.current;
+    if (!api) {
+      await logseq.UI.showMsg("编辑器还没有准备好。", "warning");
+      return;
+    }
+
+    const serialized = serializeAsJSON(api.getSceneElements(), api.getAppState(), api.getFiles(), "local");
+    const source = JSON.parse(serialized) as ExcalidrawSource;
+
+    await logseq.Editor.updateBlock(state.blockUuid, createSourceBlock(source));
+    await logseq.UI.showMsg("Excalidraw 已保存。", "success");
+    close();
+  }, [close, state]);
+
+  const createEmptyDrawing = useCallback(async () => {
+    const currentBlock = await logseq.Editor.getCurrentBlock();
+    if (!currentBlock?.uuid) {
+      await logseq.UI.showMsg("请先把光标放在要插入绘图的块里。", "warning");
+      return;
+    }
+
+    await logseq.Editor.updateBlock(currentBlock.uuid, createSourceBlock(EMPTY_EXCALIDRAW_SOURCE));
+    window.openExcalidrawEditor?.(currentBlock.uuid);
+  }, []);
+
+  useEffect(() => {
+    window.addEventListener("keydown", (event) => {
+      if (event.key === "Escape") {
+        close();
+      }
+    });
+  }, [close]);
+
+  if (state.status === "idle") {
+    return (
+      <div className="empty-panel">
+        <button type="button" className="primary-button" onClick={createEmptyDrawing}>
+          新建 Excalidraw
+        </button>
+      </div>
+    );
+  }
+
+  if (state.status === "loading") {
+    return <div className="status-panel">正在打开绘图...</div>;
+  }
+
+  if (state.status === "error") {
+    return (
+      <div className="status-panel">
+        <p>{state.message}</p>
+        <button type="button" onClick={close}>
+          关闭
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <main className="editor-window">
+      <header className="editor-toolbar">
+        <strong>Excalidraw</strong>
+        <span>源内容仍保存在当前 Logseq 块中。</span>
+        <button type="button" onClick={close}>
+          取消
+        </button>
+        <button type="button" className="primary-button" onClick={save}>
+          保存
+        </button>
+      </header>
+      <section className="editor-canvas">
+        <Excalidraw
+          excalidrawAPI={(api) => {
+            excalidrawApiRef.current = api;
+          }}
+          initialData={initialData as never}
+        />
+      </section>
+    </main>
+  );
+}
