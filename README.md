@@ -4,6 +4,8 @@ A Logseq plugin for creating, rendering, previewing, and editing Excalidraw draw
 
 The plugin keeps the original Excalidraw source format intact. Pages display a rendered drawing preview instead of the raw JSON source, and editing opens in a dedicated floating editor window.
 
+![操作](./操作.gif)
+
 ## Features
 
 - Create Excalidraw drawings from Logseq slash commands.
