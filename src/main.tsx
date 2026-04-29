@@ -7,8 +7,12 @@ import {
   createAssetLinkBlock,
   createSourceBlock,
   EMPTY_EXCALIDRAW_SOURCE,
+  appendRenderSizeAttrs,
   parseExcalidrawAssetLink,
+  parseRenderSizeAttrs,
   parseSourceBlock,
+  stripGeneratedPreviewDataUrl,
+  stripRenderSizeAttrs,
 } from "./excalidraw-source";
 import { escapeAttribute, renderSourceToDataUrl } from "./render";
 import "./styles.css";
@@ -28,7 +32,44 @@ type RendererBlock = {
 
 const registeredRenderers = new Set<string>();
 const rendererSlots = new Map<string, RendererBlock>();
+const observedRendererSizes = new Map<string, { height: number; width: number }>();
+const rendererSizeSaveTimers = new Map<string, number>();
+const lastRenderedContentKeys = new Map<string, string>();
 const assetsStorage = logseq.Assets.makeSandboxStorage();
+
+function createRendererElementId(blockUuid: string) {
+  return `logseq-excalidraw-renderer-${blockUuid.replace(/[^a-zA-Z0-9_-]/g, "-")}`;
+}
+
+function iconSvg(name: "edit" | "delete" | "source") {
+  if (name === "edit") {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M12 20h9" />
+        <path d="m16.5 3.5 4 4L7 21H3v-4L16.5 3.5Z" />
+      </svg>
+    `;
+  }
+
+  if (name === "delete") {
+    return `
+      <svg viewBox="0 0 24 24" aria-hidden="true">
+        <path d="M3 6h18" />
+        <path d="M8 6V4h8v2" />
+        <path d="m19 6-1 14H6L5 6" />
+        <path d="M10 11v5" />
+        <path d="M14 11v5" />
+      </svg>
+    `;
+  }
+
+  return `
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1" />
+      <path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" />
+    </svg>
+  `;
+}
 
 function getPulledBlockValue(block: Record<string, unknown>, key: string) {
   return block[key] ?? block[`block/${key}`];
@@ -118,8 +159,14 @@ function registerRenderer(blockUuid: string) {
   });
 }
 
-async function renderBlock(blockUuid: string, event: RendererBlock) {
-  const resolved = await resolveBlockSource(event.content ?? "");
+async function renderBlock(blockUuid: string, event: RendererBlock, options: { force?: boolean } = {}) {
+  const content = event.content ?? "";
+  const contentKey = stripRenderSizeAttrs(stripGeneratedPreviewDataUrl(content)).trim();
+  if (!options.force && lastRenderedContentKeys.get(blockUuid) === contentKey && observedRendererSizes.has(blockUuid)) {
+    return;
+  }
+
+  const resolved = await resolveBlockSource(content);
   if (!resolved) {
     logseq.provideUI({
       key: `excalidraw-renderer-${blockUuid}`,
@@ -135,19 +182,36 @@ async function renderBlock(blockUuid: string, event: RendererBlock) {
   }
 
   const imageUrl = await renderSourceToDataUrl(resolved.source);
+  const renderSize = observedRendererSizes.get(blockUuid) ?? parseRenderSizeAttrs(content);
   const safeImageUrl = escapeAttribute(imageUrl);
   const safeUuid = escapeAttribute(event.uuid ?? blockUuid);
   const safeAssetPath = resolved.assetPath ? escapeAttribute(resolved.assetPath) : "";
+  const safeRendererId = escapeAttribute(createRendererElementId(event.uuid ?? blockUuid));
+  const sizeClass = renderSize.width || renderSize.height ? " logseq-excalidraw-renderer-sized" : "";
+  const sizeStyle = [
+    renderSize.width ? `width: ${renderSize.width}px` : "",
+    renderSize.height ? `height: ${renderSize.height}px` : "",
+  ]
+    .filter(Boolean)
+    .join("; ");
 
   logseq.provideUI({
     key: `excalidraw-renderer-${blockUuid}`,
     slot: event.slot,
     reset: true,
     template: `
-      <div class="logseq-excalidraw-renderer" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}">
+      <div
+        id="${safeRendererId}"
+        class="logseq-excalidraw-renderer${sizeClass}"
+        data-block-uuid="${safeUuid}"
+        data-asset-path="${safeAssetPath}"
+        data-renderer-id="${safeRendererId}"
+        style="${sizeStyle}"
+      >
         <div class="logseq-excalidraw-actions">
-          <button data-on-click="editExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}">Edit</button>
-          <button data-on-click="deleteExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}">Delete</button>
+          <button class="logseq-excalidraw-icon-button" data-on-click="editExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}" title="Edit" aria-label="Edit drawing">${iconSvg("edit")}</button>
+          <button class="logseq-excalidraw-icon-button" data-on-click="showExcalidrawDrawingSource" data-block-uuid="${safeUuid}" data-renderer-id="${safeRendererId}" title="Source" aria-label="Edit source link">${iconSvg("source")}</button>
+          <button class="logseq-excalidraw-icon-button" data-on-click="deleteExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}" title="Delete" aria-label="Delete drawing">${iconSvg("delete")}</button>
         </div>
         <button class="logseq-excalidraw-preview-button" data-on-click="previewExcalidrawDrawing" data-block-uuid="${safeUuid}" data-asset-path="${safeAssetPath}" title="Preview">
           <img src="${safeImageUrl}" alt="Excalidraw drawing" />
@@ -155,6 +219,7 @@ async function renderBlock(blockUuid: string, event: RendererBlock) {
       </div>
     `,
   });
+  lastRenderedContentKeys.set(blockUuid, contentKey);
 }
 
 async function refreshRenderer(blockUuid: string) {
@@ -164,11 +229,15 @@ async function refreshRenderer(blockUuid: string) {
     return;
   }
 
-  await renderBlock(blockUuid, {
-    ...event,
-    uuid: blockUuid,
-    content: block.content,
-  });
+  await renderBlock(
+    blockUuid,
+    {
+      ...event,
+      uuid: blockUuid,
+      content: block.content,
+    },
+    { force: true },
+  );
 }
 
 async function registerExistingRenderers() {
@@ -189,6 +258,9 @@ async function registerExistingRenderers() {
 function installRenderer() {
   window.refreshExcalidrawRenderer = refreshRenderer;
   registerExistingRenderers();
+  window.setInterval(() => {
+    void saveChangedRendererSizes();
+  }, 700);
   logseq.DB.onChanged(({ blocks }) => {
     for (const block of blocks ?? []) {
       if (block.uuid && block.content && isRenderableBlockContent(block.content)) {
@@ -196,6 +268,53 @@ function installRenderer() {
       }
     }
   });
+}
+
+async function saveChangedRendererSizes() {
+  for (const [blockUuid] of rendererSlots) {
+    const rendererId = createRendererElementId(blockUuid);
+    const rect = await logseq.UI.queryElementRect(`#${rendererId}`);
+    if (!rect?.width || !rect?.height) {
+      observedRendererSizes.delete(blockUuid);
+      clearPendingSizeSave(blockUuid);
+      continue;
+    }
+
+    const width = Math.max(80, Math.round(rect.width));
+    const height = Math.max(40, Math.round(rect.height));
+    const previousSize = observedRendererSizes.get(blockUuid);
+    if (!previousSize) {
+      observedRendererSizes.set(blockUuid, { height, width });
+      continue;
+    }
+
+    const sizeChanged = Math.abs(previousSize.width - width) > 2 || Math.abs(previousSize.height - height) > 2;
+    if (!sizeChanged) {
+      continue;
+    }
+
+    observedRendererSizes.set(blockUuid, { height, width });
+    scheduleRendererSizeSave(blockUuid, rendererId);
+  }
+}
+
+function scheduleRendererSizeSave(blockUuid: string, rendererId: string) {
+  clearPendingSizeSave(blockUuid);
+  const timer = window.setTimeout(() => {
+    rendererSizeSaveTimers.delete(blockUuid);
+    void saveExcalidrawDrawingSize(blockUuid, rendererId);
+  }, 1600);
+  rendererSizeSaveTimers.set(blockUuid, timer);
+}
+
+function clearPendingSizeSave(blockUuid: string) {
+  const timer = rendererSizeSaveTimers.get(blockUuid);
+  if (!timer) {
+    return;
+  }
+
+  window.clearTimeout(timer);
+  rendererSizeSaveTimers.delete(blockUuid);
 }
 
 function installCommands() {
@@ -219,6 +338,27 @@ function installCommands() {
         await logseq.Editor.removeBlock(blockUuid);
       }
       await logseq.UI.showMsg("Excalidraw deleted.", "success");
+    },
+    async showExcalidrawDrawingSource(event: { dataset?: { blockUuid?: string } }) {
+      const blockUuid = event.dataset?.blockUuid;
+      if (!blockUuid) {
+        return;
+      }
+
+      const block = await logseq.Editor.getBlock(blockUuid);
+      if (block?.content) {
+        const cleanContent = stripGeneratedPreviewDataUrl(block.content);
+        if (cleanContent !== block.content) {
+          await logseq.Editor.updateBlock(blockUuid, cleanContent);
+        }
+      }
+
+      logseq.provideUI({
+        key: `excalidraw-renderer-${blockUuid}`,
+        reset: true,
+        template: "",
+      });
+      await logseq.Editor.editBlock(blockUuid);
     },
     async previewExcalidrawDrawing(event: { dataset?: { blockUuid?: string; assetPath?: string } }) {
       const blockUuid = event.dataset?.blockUuid;
@@ -270,19 +410,52 @@ function installCommands() {
   });
 }
 
+async function saveExcalidrawDrawingSize(blockUuid: string, rendererId: string) {
+  const rect = await logseq.UI.queryElementRect(`#${rendererId}`);
+  if (!rect?.width || !rect?.height) {
+    return;
+  }
+
+  const width = Math.max(80, Math.round(rect.width));
+  const height = Math.max(40, Math.round(rect.height));
+  observedRendererSizes.set(blockUuid, { height, width });
+
+  const block = await logseq.Editor.getBlock(blockUuid);
+  if (!block?.content || !isRenderableBlockContent(block.content)) {
+    return;
+  }
+
+  const cleanContent = stripGeneratedPreviewDataUrl(block.content);
+  if (cleanContent !== block.content) {
+    await logseq.Editor.updateBlock(blockUuid, cleanContent);
+  }
+
+  const currentSize = parseRenderSizeAttrs(cleanContent);
+  if (currentSize.width === width && currentSize.height === height) {
+    return;
+  }
+
+  await logseq.Editor.updateBlock(blockUuid, appendRenderSizeAttrs(cleanContent, { height, width }));
+}
+
 function installStyles() {
   logseq.provideStyle(`
     .logseq-excalidraw-renderer {
       position: relative;
       display: block;
       width: 100%;
+      height: auto;
       max-width: 960px;
       margin: 8px 0;
       cursor: pointer;
       border: 1px solid var(--ls-border-color, #d1d5db);
       border-radius: 8px;
+      box-sizing: border-box;
       overflow: hidden;
+      resize: both;
       background: #ffffff;
+      min-width: 120px;
+      min-height: 80px;
     }
 
     .logseq-excalidraw-actions {
@@ -295,8 +468,12 @@ function installStyles() {
     }
 
     .logseq-excalidraw-actions button {
-      min-height: 28px;
-      padding: 0 10px;
+      display: inline-grid;
+      width: 30px;
+      height: 30px;
+      min-height: 30px;
+      place-items: center;
+      padding: 0;
       border: 1px solid var(--ls-border-color, #cbd5e1);
       border-radius: 8px;
       color: var(--ls-primary-text-color, #111827);
@@ -304,9 +481,22 @@ function installStyles() {
       cursor: pointer;
     }
 
+    .logseq-excalidraw-icon-button svg {
+      width: 16px;
+      height: 16px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
     .logseq-excalidraw-preview-button {
+      position: relative;
       display: block;
       width: 100%;
+      height: auto;
+      box-sizing: border-box;
       min-height: 0;
       padding: 0;
       border: 0;
@@ -324,6 +514,32 @@ function installStyles() {
       display: block;
       width: 100%;
       height: auto;
+    }
+
+    .logseq-excalidraw-renderer-sized {
+      height: var(--logseq-excalidraw-renderer-height, auto);
+    }
+
+    .logseq-excalidraw-renderer-sized .logseq-excalidraw-preview-button {
+      position: absolute;
+      inset: 0;
+      display: block;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+    }
+
+    .logseq-excalidraw-renderer-sized img {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      width: auto;
+      height: auto;
+      max-width: 100%;
+      max-height: 100%;
+      transform: translate(-50%, -50%);
+      object-fit: contain;
+      object-position: center;
     }
 
     .logseq-excalidraw-error {

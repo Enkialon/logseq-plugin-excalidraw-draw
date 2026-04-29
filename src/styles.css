@@ -65,14 +65,13 @@ button:hover {
 }
 
 .preview-window {
-  display: grid;
-  grid-template-rows: auto 1fr;
+  display: block;
   width: 100%;
   height: 100%;
   overflow: hidden;
-  border: 1px solid var(--ls-border-color, #d1d5db);
-  border-radius: 8px;
-  background: var(--ls-primary-background-color, #ffffff);
+  border: 0;
+  border-radius: 0;
+  background: #000000;
 }
 
 .editor-toolbar {
@@ -101,11 +100,13 @@ button:hover {
 }
 
 .preview-canvas {
-  min-height: 0;
-  padding: 18px;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  box-sizing: border-box;
   overflow: auto;
-  background: #f8fafc;
-  cursor: zoom-out;
+  background: #000000;
+  cursor: zoom-in;
 }
 
 .preview-stage {
@@ -113,12 +114,14 @@ button:hover {
   min-width: 100%;
   min-height: 100%;
   place-items: center;
-  cursor: default;
+  padding: 24px;
+  box-sizing: border-box;
 }
 
 .preview-canvas img {
   height: auto;
   background: #ffffff;
-  border: 1px solid #d1d5db;
-  border-radius: 8px;
+  border: 0;
+  border-radius: 0;
+  cursor: zoom-out;
 }

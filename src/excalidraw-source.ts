@@ -9,6 +9,14 @@ export type ExcalidrawSource = {
 
 export const FENCE_LANGUAGE = "excalidraw";
 
+export type RenderSize = {
+  height?: number;
+  width?: number;
+};
+
+const SIZE_ATTR_PATTERN = /\s*\{:[^}]*\}\s*$/;
+const GENERATED_PREVIEW_DATA_URL_PATTERN = /^\s*data:image\/svg\+xml;charset=utf-8,/m;
+
 export const EMPTY_EXCALIDRAW_SOURCE: ExcalidrawSource = {
   type: "excalidraw",
   version: 2,
@@ -31,7 +39,7 @@ export function createAssetLinkBlock(assetPath: string) {
 }
 
 export function parseSourceBlock(content: string): ExcalidrawSource | null {
-  const trimmed = content.trim();
+  const trimmed = stripRenderSizeAttrs(stripGeneratedPreviewDataUrl(content)).trim();
   const fenced = trimmed.match(/^```(?:excalidraw|excalidraw-json)\s*\n([\s\S]*?)\n```$/);
   const raw = fenced?.[1] ?? trimmed;
 
@@ -61,7 +69,9 @@ export type ExcalidrawAssetLink = {
 };
 
 export function parseExcalidrawAssetLink(content: string): ExcalidrawAssetLink | null {
-  const match = content.trim().match(/^\[([^\]]+\.excalidraw)\]\(([^)]+\.excalidraw)\)$/i);
+  const match = stripRenderSizeAttrs(stripGeneratedPreviewDataUrl(content))
+    .trim()
+    .match(/^\[([^\]]+\.excalidraw)\]\(([^)]+\.excalidraw)\)$/i);
   if (!match) {
     return null;
   }
@@ -90,4 +100,44 @@ export function normalizeAssetPath(href: string) {
     .replace(/^\/+/, "");
 
   return relativeAssetPath;
+}
+
+export function parseRenderSizeAttrs(content: string): RenderSize {
+  const match = content.match(SIZE_ATTR_PATTERN);
+  if (!match) {
+    return {};
+  }
+
+  const size: RenderSize = {};
+  for (const [, key, rawValue] of match[0].matchAll(/:(height|width)\s+(\d+)/g)) {
+    const value = Number(rawValue);
+    if (Number.isFinite(value) && value > 0) {
+      size[key as keyof RenderSize] = value;
+    }
+  }
+
+  return size;
+}
+
+export function stripRenderSizeAttrs(content: string) {
+  const match = content.match(SIZE_ATTR_PATTERN);
+  if (!match || !/:(?:height|width)\s+\d+/.test(match[0])) {
+    return content;
+  }
+
+  return content.slice(0, match.index).trimEnd();
+}
+
+export function appendRenderSizeAttrs(content: string, size: Required<RenderSize>) {
+  const base = stripRenderSizeAttrs(stripGeneratedPreviewDataUrl(content)).trimEnd();
+  return `${base}{:height ${size.height}, :width ${size.width}}`;
+}
+
+export function stripGeneratedPreviewDataUrl(content: string) {
+  const match = content.match(GENERATED_PREVIEW_DATA_URL_PATTERN);
+  if (!match || typeof match.index !== "number") {
+    return content;
+  }
+
+  return content.slice(0, match.index).trimEnd();
 }

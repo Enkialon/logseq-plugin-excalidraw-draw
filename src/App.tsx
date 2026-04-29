@@ -30,6 +30,7 @@ function delay(ms: number) {
 export function App() {
   const [state, setState] = useState<EditorState>({ status: "idle" });
   const [previewScale, setPreviewScale] = useState(1);
+  const [previewNaturalSize, setPreviewNaturalSize] = useState<{ width: number; height: number } | null>(null);
   const excalidrawApiRef = useRef<ExcalidrawImperativeAPI | null>(null);
   const assetsStorage = useMemo(() => logseq.Assets.makeSandboxStorage(), []);
 
@@ -44,6 +45,21 @@ export function App() {
       borderRadius: "8px",
       boxShadow: "0 20px 55px rgba(15, 23, 42, 0.35)",
       background: "var(--ls-primary-background-color)",
+    });
+    logseq.showMainUI();
+  }, []);
+
+  const openPreviewUI = useCallback(async () => {
+    await logseq.setMainUIAttrs({ title: "查看 Excalidraw" });
+    logseq.setMainUIInlineStyle({
+      zIndex: 11,
+      position: "fixed",
+      inset: "0",
+      width: "100vw",
+      height: "100vh",
+      borderRadius: "0",
+      boxShadow: "none",
+      background: "transparent",
     });
     logseq.showMainUI();
   }, []);
@@ -90,8 +106,9 @@ export function App() {
 
     window.openExcalidrawPreview = async (imageUrl: string) => {
       setPreviewScale(1);
+      setPreviewNaturalSize(null);
       setState({ status: "preview", imageUrl });
-      await openMainUI("查看 Excalidraw");
+      await openPreviewUI();
     };
 
     return () => {
@@ -99,7 +116,7 @@ export function App() {
       delete window.openExcalidrawAssetEditor;
       delete window.openExcalidrawPreview;
     };
-  }, [assetsStorage, openMainUI, readBlockSource]);
+  }, [assetsStorage, openMainUI, openPreviewUI, readBlockSource]);
 
   const readAssetFile = useCallback(
     async (assetPath: string) => {
@@ -142,6 +159,7 @@ export function App() {
     logseq.hideMainUI();
     setState({ status: "idle" });
     setPreviewScale(1);
+    setPreviewNaturalSize(null);
   }, []);
 
   const zoomPreview = useCallback((event: React.WheelEvent<HTMLElement>) => {
@@ -228,22 +246,23 @@ export function App() {
 
   if (state.status === "preview") {
     return (
-      <main className="preview-window">
-        <header className="editor-toolbar">
-          <strong>Excalidraw</strong>
-          <span>Preview: scroll to zoom</span>
-          <button type="button" onClick={close}>
-            Close
-          </button>
-        </header>
-        <section className="preview-canvas" onWheel={zoomPreview}>
-          <div className="preview-stage" onClick={(event) => event.stopPropagation()}>
+      <main className="preview-window" onClick={close} onWheel={zoomPreview}>
+        <section className="preview-canvas">
+          <div className="preview-stage">
             <img
               src={state.imageUrl}
               alt="Excalidraw preview"
+              onLoad={(event) => {
+                const image = event.currentTarget;
+                setPreviewNaturalSize({
+                  width: image.naturalWidth,
+                  height: image.naturalHeight,
+                });
+              }}
               style={{
-                maxWidth: previewScale === 1 ? "100%" : "none",
-                width: `${previewScale * 100}%`,
+                width: previewNaturalSize ? `${previewNaturalSize.width * previewScale}px` : "auto",
+                maxWidth: previewScale === 1 ? "calc(100vw - 48px)" : "none",
+                maxHeight: previewScale === 1 ? "calc(100vh - 48px)" : "none",
               }}
             />
           </div>
